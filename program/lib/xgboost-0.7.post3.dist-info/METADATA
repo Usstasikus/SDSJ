@@ -1,0 +1,16 @@
+Metadata-Version: 2.0
+Name: xgboost
+Version: 0.7.post3
+Summary: XGBoost Python Package
+Home-page: https://github.com/dmlc/xgboost
+Author: Hyunsu Cho
+Author-email: chohyu01@cs.washington.edu
+License: UNKNOWN
+Description-Content-Type: UNKNOWN
+Platform: UNKNOWN
+Requires-Dist: numpy
+Requires-Dist: scipy
+
+UNKNOWN
+
+
