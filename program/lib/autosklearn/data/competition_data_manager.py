@@ -9,7 +9,7 @@ import warnings
 
 import numpy as np
 import scipy.sparse
-import pandas as pd 
+import pandas as pd
 import datetime
 import argparse
 
@@ -17,6 +17,7 @@ from autosklearn.constants import MULTILABEL_CLASSIFICATION, \
     STRING_TO_TASK_TYPES, MULTICLASS_CLASSIFICATION
 from autosklearn.data.abstract_data_manager import AbstractDataManager
 from autosklearn.util import convert_to_num
+
 try:
     import autosklearn.data.competition_c_functions as competition_c_functions
 
@@ -24,8 +25,8 @@ try:
 except Exception:
     competition_c_functions_is_there = False
 
-
 BIG_DATASET_SIZE = 500 * 1024 * 1024
+ONEHOT_MAX_UNIQUE_VALUES = 20
 
 
 def parse_dt(x):
@@ -187,6 +188,7 @@ def sparse_list_to_csr_sparse(sparse_list, nbr_features):
 def load_labels(filename):
     return np.genfromtxt(filename, dtype=np.float64)
 
+
 class CompetitionDataManager():
     def __init__(self, name, args, max_memory_in_mb=1048576):
         if name.endswith("/"):
@@ -197,12 +199,12 @@ class CompetitionDataManager():
         name = os.path.basename(name)
         self.name = name
         self.data = {}
-
+        self.model_config = {}
+        self.feat_type_dict = {}
 
         self.input_dir = os.path.join(input_dir, name)
         self.load_data(input_dir, max_memory_in_mb)
         self.load_info()
-
 
     def load_data(self, input_dir, max_memory_in_mb):
         train_path = os.path.join(input_dir, self.name, 'train.csv')
@@ -222,25 +224,46 @@ class CompetitionDataManager():
         # df_gt = pd.read_csv(gt_path)
         d = {}
 
-        remain_cols = []
+        self.model_config['used_columns'] = []
 
+        Xtr = self.string_preprocessing(Xtr)
+        Xte = self.string_preprocessing(Xte)
+
+        # columns feat type encoding
         for col in Xtr:
-            if col.startswith('string') or len(df_train[col].unique()) <= 40:
+            if len(Xtr[col].unique()) <= 2:
+                d[col] = 'Binary'
+
+            elif col.startswith('string'):
                 d[col] = 'Categorical'
+
             elif col.startswith('number'):
                 d[col] = 'Numerical'
-                remain_cols.append(col)
+                self.model_config['used_columns'].append(col)
 
-        Xtr = Xtr[remain_cols]
-        Xte = Xte[remain_cols]
+        Xtr = Xtr[self.model_config['used_columns']]
+        Xte = Xte[self.model_config['used_columns']]
 
-        print(Xtr)
         self.data['X_train'] = Xtr.as_matrix()
         self.data['Y_train'] = Ytr.as_matrix()
         self.data['X_test'] = Xte.as_matrix()
 
-
         self.feat_type = list([d[col] for col in Xtr])
+
+    def string_preprocessing(self, df):
+        categorical_values = {}
+        for col in df:
+            col_unique_values = df[col].unique()
+            if 2 < len(col_unique_values) <= ONEHOT_MAX_UNIQUE_VALUES:
+                categorical_values[col] = col_unique_values
+                replace_list = np.column_stack((col_unique_values, np.arange(len(col_unique_values))))
+                replace_dict = {k: int(v) for (k, v) in replace_list}
+                df[col] = df[col].map(replace_dict)
+                self.model_config['used_columns'].append(col)
+
+        self.model_config['categorical_values'] = categorical_values
+
+        return df
 
     def load_info(self):
         self.info = {}
@@ -258,7 +281,7 @@ class CompetitionDataManager():
         self.info['has_categorical'] = int('Categorical' in self.feat_type)
         self.info['has_missing'] = 0
         self.info['is_sparse'] = 0
-        self.info['time_budget'] = int(os.environ.get('TIME_LIMIT', 5*60))
+        self.info['time_budget'] = int(os.environ.get('TIME_LIMIT', 5 * 60))
         self.info['is_chronological_order'] = 0
 
 # class CompetitionDataManager(AbstractDataManager):
