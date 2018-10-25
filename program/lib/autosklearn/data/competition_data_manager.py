@@ -213,26 +213,32 @@ class CompetitionDataManager():
         Ytr = df_train.target
         Xtr = df_train.drop('target', axis=1)
 
-        self.data['X_train'] = Xtr
-        self.data['Y_train'] = Ytr
-
         test_path = os.path.join(input_dir, self.name, 'test.csv')
         df_test = pd.read_csv(test_path)
         df_test = transform_datetime_features(df_test)
         Xte = df_test
-        self.data['X_test'] = Xte
 
         # gt_path = os.path.join(input_dir, 'test-target.csv')
         # df_gt = pd.read_csv(gt_path)
         d = {}
 
-        for col in df_train:
-            if len(df_train[col].unique()) <= 2:
-                d[col] = 'Binary'
-            elif col.startswith('string') or len(df_train[col].unique()) <= 40:
+        remain_cols = []
+
+        for col in Xtr:
+            if col.startswith('string') or len(df_train[col].unique()) <= 40:
                 d[col] = 'Categorical'
-            else:
+            elif col.startswith('number'):
                 d[col] = 'Numerical'
+                remain_cols.append(col)
+
+        Xtr = Xtr[remain_cols]
+        Xte = Xte[remain_cols]
+
+        print(Xtr)
+        self.data['X_train'] = Xtr.as_matrix()
+        self.data['Y_train'] = Ytr.as_matrix()
+        self.data['X_test'] = Xte.as_matrix()
+
 
         self.feat_type = list([d[col] for col in Xtr])
 
@@ -240,9 +246,8 @@ class CompetitionDataManager():
         self.info = {}
         self.info['usage'] = 'SDSJ'
         self.info['name'] = self.name
-        self.info['task'] = 'binary.classification'
+        self.info['task'] = 1
         self.info['target_type'] = 'Binary'
-        self.info['usage'] = 'Binary'
         self.info['feat_type'] = ' & '.join(np.unique(self.feat_type))
         self.info['metric'] = 'auc_metric'
         self.info['feat_num'] = len(self.feat_type)
