@@ -158,7 +158,7 @@ def get_info_from_file(datadir, dataset):
 
     if not os.path.exists(dataset_path):
         sys.stderr.write('Could not find info: %s\n' % dataset_path)
-        return {'time_budget': 600}
+        return {'time_budget': int(os.environ.get('TIME_LIMIT', 5*60))}
 
     info = dict()
 
@@ -222,7 +222,8 @@ logger.debug("========================================")
 
 # =========================== BEGIN PROGRAM ================================
 
-def setup_argparse(parser):
+def setup_argparse():
+    parser = argparse.ArgumentParser()
     parser.add_argument(
         "--mode",
         help="Type of the task"
@@ -240,22 +241,27 @@ def setup_argparse(parser):
         help="Folder to save the trained model "
     )
 
+    return parser.parse_args()
+
+
+def get_parent_folder(path):
+    return os.sep.join(os.path.abspath(path).split(os.sep)[:-1])
 
 if __name__=="__main__" and debug_mode<4:
-    args = argparse.ArgumentParser()
-    setup_argparse(args)
+    # args = None
+    args = setup_argparse()
     #### Check whether everything went well (no time exceeded)
     execution_success = True
     
     #### INPUT/OUTPUT: Get input and output directory names
-    if len(argv)==1: # Use the default input and output directories if no arguments are provided
-        input_dir = default_input_dir
-        output_dir = default_output_dir
-        program_dir = default_program_dir
-    else:
-        input_dir = os.path.abspath(argv[1])
-        output_dir = os.path.abspath(argv[2])
-        program_dir = os.path.abspath(argv[3])
+    # if len(argv)==1: # Use the default input and output directories if no arguments are provided
+    #     input_dir = default_input_dir
+    #     output_dir = default_output_dir
+    #     program_dir = default_program_dir
+    # else:
+    input_dir = get_parent_folder(get_parent_folder(args.train_csv))
+    output_dir = os.path.join(get_parent_folder(input_dir), 'output')
+    program_dir = os.path.join(get_parent_folder(input_dir), 'program')
         
     if verbose: 
         print("Using input_dir: " + input_dir)
@@ -265,6 +271,7 @@ if __name__=="__main__" and debug_mode<4:
     # Our libraries
     path.append (program_dir + "/lib/")
     path.append (input_dir)
+
     import data_io                       # general purpose input/output functions
     from data_io import vprint           # print only in verbose mode
     #from models import MyAutoML    		 # example model
@@ -290,15 +297,16 @@ if __name__=="__main__" and debug_mode<4:
     data_io.mkdir(output_dir)
     
     #### INVENTORY DATA (and sort dataset names alphabetically)
-    datanames = data_io.inventory_data(input_dir)
+    # datanames = data_io.inventory_data(input_dir)
     # Overwrite the "natural" order
+    dataname = args.train_csv.split(os.sep)[-2]
     
     #### DEBUG MODE: Show dataset list and STOP
     if debug_mode>=3:
         data_io.show_version()
         data_io.show_io(input_dir, output_dir)
         print('\n****** Ingestion program version ' + str(version) + ' ******\n\n' + '========== DATASETS ==========\n')        	
-        data_io.write_list(datanames)      
+
         datanames = [] # Do not proceed with learning and testing
 
     #############################
@@ -307,82 +315,81 @@ if __name__=="__main__" and debug_mode<4:
     # == Get overall time_limit
     overall_budget = 0
     budgets = {}
-    for basename in datanames:
-        info = get_info_from_file(input_dir, basename)
-        overall_budget += int(float(info["time_budget"]))
-        budgets[basename] = int(float(info["time_budget"])) - BUFFER_BEFORE_SENDING_SIGTERM
+
+    info = get_info_from_file(input_dir, dataname)
+    overall_budget += int(float(info["time_budget"]))
+    budgets[dataname] = int(float(info["time_budget"])) - BUFFER_BEFORE_SENDING_SIGTERM
 
     #### MAIN LOOP OVER DATASETS:
-    for basename in datanames:
-        tmp = float(time.time())
-        start_task = tmp
-        vprint( verbose,  "\n========== ML Freiburg " + str(version) + " ==========\n")
-        vprint( verbose,  "************************************************")
-        vprint( verbose,  "******** Processing dataset " + basename.capitalize() + " ********")
-        vprint( verbose,  "************************************************")
+    tmp = float(time.time())
+    start_task = tmp
+    vprint( verbose,  "\n========== ML Freiburg " + str(version) + " ==========\n")
+    vprint( verbose,  "************************************************")
+    vprint( verbose,  "******** Processing dataset " + dataname.capitalize() + " ********")
+    vprint( verbose,  "************************************************")
 
-        tmp = float(time.time())
-        time_left = overall_budget - (tmp - overall_start)
-        time_left_for_this_task = budgets[basename] - (tmp - start_task)
-        time_left_for_this_task = min(time_left_for_this_task, time_left)
+    tmp = float(time.time())
+    time_left = overall_budget - (tmp - overall_start)
+    time_left_for_this_task = budgets[dataname] - (tmp - start_task)
+    time_left_for_this_task = min(time_left_for_this_task, time_left)
 
-        logging.info("%g sec left in total; %g sec left for %s" %
-                     (time_left, time_left_for_this_task, basename))
+    logging.info("%g sec left in total; %g sec left for %s" %
+                 (time_left, time_left_for_this_task, dataname))
 
 
-        print('BASENAME', basename)
-        print('input_dir', input_dir)
-        print('output_dir', output_dir)
+    print('BASENAME', dataname)
+    print('input_dir', input_dir)
+    print('output_dir', output_dir)
 
-        tmp_output_dir = tempfile.mkdtemp(suffix="_" + basename,
-                                          dir=output_dir)
+    tmp_output_dir = tempfile.mkdtemp(suffix="_" + dataname,
+                                      dir=output_dir)
 
-        p = Process(target=logic.run_automl,
-                    kwargs={"args": args,
-                            "logger": logger,
-                            "input_dir": input_dir,
-                            "output_dir": output_dir,
-                            "dataset_name": basename,
-                            "tmp_output_dir": tmp_output_dir,
-                            "budget": time_left_for_this_task,
-                            "seed": 3,
-                            "sleep": 5})
-        p.start()
-        p.join(time_left_for_this_task)
-        pid = p.pid
-        if p.is_alive():
-            parent = psutil.Process(pid)
-            for child in parent.children(recursive=True):
-                child.kill()
-            parent.kill()
+    p = Process(target=logic.run_automl,
+                kwargs={"args": args,
+                        "logger": logger,
+                        "input_dir": input_dir,
+                        "output_dir": output_dir,
+                        "dataset_name": dataname,
+                        "tmp_output_dir": tmp_output_dir,
+                        "budget": time_left_for_this_task,
+                        "seed": 3,
+                        "sleep": 5})
+    p.start()
+    p.join(time_left_for_this_task)
+    pid = p.pid
+    if p.is_alive():
+        parent = psutil.Process(pid)
+        for child in parent.children(recursive=True):
+            child.kill()
+        parent.kill()
 
-        # Start shutting down
-        tmp = float(time.time())
-        time_left = (overall_budget - (tmp - overall_start))
-        time_left_for_this_task = budgets[basename] - (tmp - start_task)
-        time_left_for_this_task = min(time_left, time_left_for_this_task)
-        logger.info("%s done, %g sec left [%g sec], %g sec left in total" %
-                    (basename, time_left_for_this_task, budgets[basename],
-                     time_left))
+    # Start shutting down
+    tmp = float(time.time())
+    time_left = (overall_budget - (tmp - overall_start))
+    time_left_for_this_task = budgets[dataname] - (tmp - start_task)
+    time_left_for_this_task = min(time_left, time_left_for_this_task)
+    logger.info("%s done, %g sec left [%g sec], %g sec left in total" %
+                (dataname, time_left_for_this_task, budgets[dataname],
+                 time_left))
 
-        logger.info("Starting Shutdown!")
+    logger.info("Starting Shutdown!")
 
-        program_exp = re.compile(r"run\.py").search
-        contacts = util.send_signal_to_our_processes(sig=SIGTERM, filter=program_exp)
-        logger.debug("Sending SIG=%d to %s" % (SIGTERM, str(contacts)))
+    program_exp = re.compile(r"run\.py").search
+    contacts = util.send_signal_to_our_processes(sig=SIGTERM, filter=program_exp)
+    logger.debug("Sending SIG=%d to %s" % (SIGTERM, str(contacts)))
 
-        time.sleep(DELAY_TO_SIGKILL)
+    time.sleep(DELAY_TO_SIGKILL)
 
-        contacts = util.send_signal_to_our_processes(sig=SIGKILL, filter=program_exp)
-        logger.debug("Sending SIG=%d to %s" % (SIGKILL, str(contacts)))
+    contacts = util.send_signal_to_our_processes(sig=SIGKILL, filter=program_exp)
+    logger.debug("Sending SIG=%d to %s" % (SIGKILL, str(contacts)))
 
-        logger.debug("Deleting %s" % tmp_output_dir)
-        for i in range(5):
-            try:
-                shutil.rmtree(tmp_output_dir)
-            except:
-                time.sleep(1)
-            if not os.path.isdir(tmp_output_dir): break
+    logger.debug("Deleting %s" % tmp_output_dir)
+    for i in range(5):
+        try:
+            shutil.rmtree(tmp_output_dir)
+        except:
+            time.sleep(1)
+        if not os.path.isdir(tmp_output_dir): break
 
 
     #########################

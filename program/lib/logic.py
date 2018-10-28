@@ -8,8 +8,8 @@ from hpbandster.core.utils import start_local_nameserver
 from autosklearn.ensemble_builder import EnsembleBuilder
 import autosklearn.util.backend
 from autosklearn.data import competition_data_manager
-from autosklearn.metrics import roc_auc
-from autosklearn.constants import BINARY_CLASSIFICATION
+from autosklearn.metrics import roc_auc, mean_squared_error
+from autosklearn.constants import BINARY_CLASSIFICATION, STRING_TO_TASK_TYPES
 import numpy as np
 import pynisher
 import sklearn.decomposition
@@ -67,7 +67,8 @@ def run_automl(args, logger, input_dir, output_dir, tmp_output_dir, dataset_name
 
     # Compute time left for this task with 5 sec slack
     D = competition_data_manager.CompetitionDataManager(
-        name=os.path.join(input_dir, dataset_name), args=args,
+        name=os.path.join(input_dir, dataset_name),
+        args=args,
         max_memory_in_mb=1048576)
     n_data_points = D.data['X_train'].shape[0]
 
@@ -121,6 +122,7 @@ def run_automl(args, logger, input_dir, output_dir, tmp_output_dir, dataset_name
         'Dataset dimensions: %s %s', D.data['X_train'].shape, D.data['Y_train'].shape,
     )
 
+    print('TIME_BUDGET {} {}'.format(budget, float(D.info['time_budget'])))
     # We take the min in case there is less time left
     time_budget = min(budget, float(D.info['time_budget']))
 
@@ -148,7 +150,7 @@ def run_automl(args, logger, input_dir, output_dir, tmp_output_dir, dataset_name
     time_left_for_this_task = time_budget - (time.time() - start_task)
     ensemble_builder = EnsembleBuilder(backend=backend,
                                        dataset_name=dataset_name,
-                                       task_type=BINARY_CLASSIFICATION,
+                                       task_type=STRING_TO_TASK_TYPES[args.mode],
                                        metric=roc_auc,
                                        limit=time_left_for_this_task,
                                        ensemble_size=50,
@@ -185,6 +187,8 @@ def run_automl(args, logger, input_dir, output_dir, tmp_output_dir, dataset_name
         if total_budget == 0:
             total_budget = max_budget
 
+
+    print(f'____________ TOTAL BUDGET _____________ {total_budget}')
     ns_host, ns_port = start_local_nameserver()
     # (Note) ID serves as worker.id and seed for TargetAlgorithmEvaluator
     # If we use more than one worker this number needs to be unique

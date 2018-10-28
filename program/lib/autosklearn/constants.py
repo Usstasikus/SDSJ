@@ -18,7 +18,8 @@ TASK_TYPES_TO_STRING = \
      REGRESSION: 'regression'}
 
 STRING_TO_TASK_TYPES = \
-    {'binary.classification': BINARY_CLASSIFICATION,
+    {'classification': BINARY_CLASSIFICATION,
      'multiclass.classification': MULTICLASS_CLASSIFICATION,
      'multilabel.classification': MULTILABEL_CLASSIFICATION,
      'regression': REGRESSION}
+
